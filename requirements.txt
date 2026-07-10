@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+sqlalchemy
+psycopg2-binary
+python-jose
+passlib
+python-dotenv
+requests
+xgboost
+pandas
+scikit-learn
+joblib
+psycopg2-binary==2.9.9
