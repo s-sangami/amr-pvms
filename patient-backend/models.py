@@ -64,6 +64,8 @@ class Prescription(Base):
     duration_days = Column(String, nullable=True)
     status = Column(String, default="issued")
     created_at = Column(DateTime, default=datetime.utcnow)
+    verified_at = Column(DateTime, nullable=True)
+    dispensed_at = Column(DateTime, nullable=True)
 
 
 class FamilyMember(Base):
