@@ -1,0 +1,8 @@
+patient-backend/venv/
+patient-backend/.venv/
+patient-backend/__pycache__/
+patient-backend/*.pyc
+patient-backend/.env
+patient-backend/*.db
+patient-app/node_modules/
+patient-app/.expo/
