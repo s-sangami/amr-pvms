@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, Header
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from pydantic import BaseModel
@@ -20,6 +21,15 @@ import aware_data
 import abha
 
 app = FastAPI(title="AMR-PVMS Patient Backend")
+
+# CORS — needed for cloud deployment so the web portal + mobile app can both call this
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 SERVICE_API_KEY = os.getenv("SERVICE_API_KEY", "dev-service-key-123")
 
@@ -132,6 +142,7 @@ def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db))
 
 # =========================================================
 # ABHA VERIFICATION (mock seam — ready for real ABDM API)
+# No hardcoded fallback OTP — real random mock, must match exactly.
 # =========================================================
 
 @app.post("/abha/send-otp")
@@ -158,6 +169,23 @@ def get_my_profile(
     db: Session = Depends(get_db),
 ):
     return get_me(payload, db)
+
+@app.delete("/patient/me")
+def delete_account(
+    jwt_payload: dict = Depends(auth.get_current_patient_payload),
+    db: Session = Depends(get_db),
+):
+    patient = get_me(jwt_payload, db)
+    # Cascade delete: family members, prescriptions, then patient
+    db.query(models.FamilyMember).filter(
+        models.FamilyMember.owner_phone == patient.phone
+    ).delete()
+    db.query(models.Prescription).filter(
+        models.Prescription.patient_abha == patient.abha_id
+    ).delete()
+    db.delete(patient)
+    db.commit()
+    return {"message": "Account permanently deleted"}
 
 
 @app.post("/patient/me/complete-profile", response_model=PatientOut)
@@ -316,17 +344,45 @@ def family_member_prescriptions(
 # SERVICE-TO-SERVICE (API key — Vasuki's hospital backend)
 # =========================================================
 
-@app.get("/patient/{abha}/summary", dependencies=[Depends(verify_service_key)])
+@app.get("/patient/{abha_param}/summary", dependencies=[Depends(verify_service_key)])
 def patient_summary(abha_param: str, db: Session = Depends(get_db)):
     patient = db.query(models.Patient).filter(models.Patient.abha_id == abha_param).first()
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
+    active_prescriptions = db.query(models.Prescription).filter(
+        models.Prescription.patient_abha == patient.abha_id,
+        ~models.Prescription.status.ilike('%dispensed%')
+    ).order_by(models.Prescription.created_at.desc()).all()
+
     return {
         "abha_id": patient.abha_id,
         "name": patient.name,
+        "phone": patient.phone,
+        "age": patient.age,
+        "gender": patient.gender,
+        "blood_group": patient.blood_group,
+        "address": patient.address,
+        "height": patient.height,
+        "weight": patient.weight,
         "allergies": patient.allergies,
         "conditions": patient.conditions,
-        "active_prescriptions": [],
+        "pregnancy_status": patient.pregnancy_status,
+        "past_surgeries": patient.past_surgeries,
+        "current_medications": patient.current_medications,
+        "traditional_medicine": patient.traditional_medicine,
+        "active_prescriptions": [
+            {
+                "id": str(p.id),
+                "drug_name": p.drug_name,
+                "dosage": p.dosage,
+                "duration_days": p.duration_days,
+                "status": p.status,
+                "doctor_name": p.doctor_name,
+                "hospital_name": p.hospital_name,
+                "created_at": p.created_at.isoformat() if p.created_at else None,
+            }
+            for p in active_prescriptions
+        ],
     }
 
 
@@ -374,6 +430,8 @@ def verify_prescription(prescription_id: str, db: Session = Depends(get_db)):
         models.Patient.abha_id == prescription.patient_abha
     ).first()
 
+    already_dispensed = bool(prescription.status) and "dispensed" in prescription.status.lower()
+
     return {
         "prescription_id": str(prescription.id),
         "patient_name": patient.name if patient else "Unknown",
@@ -385,28 +443,59 @@ def verify_prescription(prescription_id: str, db: Session = Depends(get_db)):
         "hospital_name": prescription.hospital_name,
         "issued_date": prescription.created_at.isoformat() if prescription.created_at else None,
         "status": prescription.status,
-        "already_dispensed": prescription.status == "dispensed",
+        "already_dispensed": already_dispensed,
     }
 
 
 @app.post("/prescription/{prescription_id}/dispense", dependencies=[Depends(verify_service_key)])
-def dispense_prescription(prescription_id: str, db: Session = Depends(get_db)):
+def dispense_prescription(prescription_id: str, delivery_method: str = "Physical", db: Session = Depends(get_db)):
     prescription = db.query(models.Prescription).filter(
         models.Prescription.id == prescription_id
     ).first()
     if not prescription:
         raise HTTPException(status_code=404, detail="Prescription not found")
 
-    if prescription.status == "dispensed":
+    if prescription.status and "dispensed" in prescription.status.lower():
         raise HTTPException(status_code=400, detail="This prescription has already been dispensed")
 
-    prescription.status = "dispensed"
+    prescription.status = "dispensed (online)" if delivery_method.lower() == "online" else "dispensed"
     db.commit()
 
     return {
-        "message": "Prescription marked as dispensed",
+        "message": f"Prescription marked as dispensed via {delivery_method} channel",
         "prescription_id": str(prescription.id),
         "drug_name": prescription.drug_name,
+        "status": prescription.status,
+    }
+
+
+@app.get("/patient/{abha_param}/active-prescriptions", dependencies=[Depends(verify_service_key)])
+def get_active_prescriptions_for_pharmacy(abha_param: str, db: Session = Depends(get_db)):
+    patient = db.query(models.Patient).filter(models.Patient.abha_id == abha_param).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    active = db.query(models.Prescription).filter(
+        models.Prescription.patient_abha == abha_param,
+        (models.Prescription.status == None) | (~models.Prescription.status.ilike("%dispensed%")),
+    ).order_by(models.Prescription.created_at.desc()).all()
+
+    return {
+        "patient_name": patient.name,
+        "patient_abha": patient.abha_id,
+        "active_prescriptions": [
+            {
+                "id": str(p.id),
+                "drug_name": p.drug_name,
+                "dosage": p.dosage,
+                "duration_days": p.duration_days,
+                "doctor_name": p.doctor_name,
+                "hospital_name": p.hospital_name,
+                "issued_date": p.created_at.isoformat() if p.created_at else None,
+                "status": p.status,
+            }
+            for p in active
+        ],
     }
 
 
@@ -417,7 +506,7 @@ def dispense_prescription(prescription_id: str, db: Session = Depends(get_db)):
 class RiskCheckRequest(BaseModel):
     drug_name: str
     duration_days: int
-    diagnosis_match: int = 1      # 0 or 1
+    diagnosis_match: int = 1
     patient_allergies: str = ""
 
 
@@ -426,7 +515,6 @@ def score_risk(payload: RiskCheckRequest):
     if risk_model is None:
         raise HTTPException(status_code=503, detail="Risk model not loaded — run train_risk_model.py first")
 
-    # WHO "Not Recommended" check comes FIRST
     if aware_data.is_not_recommended(payload.drug_name):
         return {
             "drug_name": payload.drug_name,
@@ -486,33 +574,4 @@ def score_risk(payload: RiskCheckRequest):
         "risk_flag": bool(prediction),
         "risk_score": round(probability, 2),
         "explanation": reasons,
-    }
-    
-@app.get("/patient/{abha_param}/active-prescriptions", dependencies=[Depends(verify_service_key)])
-def get_active_prescriptions_for_pharmacy(abha_param: str, db: Session = Depends(get_db)):
-    patient = db.query(models.Patient).filter(models.Patient.abha_id == abha_param).first()
-    if not patient:
-        raise HTTPException(status_code=404, detail="Patient not found")
-
-    active = db.query(models.Prescription).filter(
-        models.Prescription.patient_abha == abha_param,
-        models.Prescription.status != "dispensed",
-    ).order_by(models.Prescription.created_at.desc()).all()
-
-    return {
-        "patient_name": patient.name,
-        "patient_abha": patient.abha_id,
-        "active_prescriptions": [
-            {
-                "id": str(p.id),
-                "drug_name": p.drug_name,
-                "dosage": p.dosage,
-                "duration_days": p.duration_days,
-                "doctor_name": p.doctor_name,
-                "hospital_name": p.hospital_name,
-                "issued_date": p.created_at.isoformat() if p.created_at else None,
-                "status": p.status,
-            }
-            for p in active
-        ],
     }
