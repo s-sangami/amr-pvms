@@ -66,6 +66,7 @@ class Prescription(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     verified_at = Column(DateTime, nullable=True)
     dispensed_at = Column(DateTime, nullable=True)
+    visit_id = Column(String, nullable=True, index=True)
 
 
 class FamilyMember(Base):

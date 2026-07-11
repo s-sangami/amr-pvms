@@ -95,6 +95,7 @@ class PrescriptionCreate(BaseModel):
     drug_name: str
     dosage: Optional[str] = None
     duration_days: Optional[str] = None
+    visit_id: Optional[str] = None   # NEW
 
 
 class FamilyMemberCreate(BaseModel):

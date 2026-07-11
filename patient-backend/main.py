@@ -48,6 +48,7 @@ def on_startup():
         with engine.connect() as conn:
             conn.execute(text("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS verified_at TIMESTAMP"))
             conn.execute(text("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS dispensed_at TIMESTAMP"))
+            conn.execute(text("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS visit_id VARCHAR"))
             conn.commit()
         print("Migration check complete (verified_at/dispensed_at)")
     except Exception as e:
@@ -239,6 +240,7 @@ def get_my_prescriptions_detailed(
         category_names = {0: "Access", 1: "Watch", 2: "Reserve"}
         result.append({
             "id": str(p.id),
+            "visit_id": p.visit_id,
             "drug_name": p.drug_name,
             "dosage": p.dosage,
             "duration_days": p.duration_days,
@@ -433,6 +435,7 @@ def issue_prescription(payload: PrescriptionCreate, db: Session = Depends(get_db
         drug_name=payload.drug_name,
         dosage=payload.dosage,
         duration_days=payload.duration_days,
+        visit_id=payload.visit_id,
     )
     db.add(prescription)
     db.commit()
