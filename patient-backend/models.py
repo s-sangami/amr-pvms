@@ -50,6 +50,8 @@ class Patient(Base):
     past_surgeries = Column(String, nullable=True)
     current_medications = Column(String, nullable=True)
     traditional_medicine = Column(String, nullable=True)
+    consent_given = Column(Boolean, default=False)
+    consent_date = Column(DateTime, nullable=True)
 
 
 class Prescription(Base):

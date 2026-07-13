@@ -18,6 +18,7 @@ class PatientSignup(BaseModel):
     name: str
     phone: str
     password: str
+    consent_given: bool = False
 
 class PasswordLogin(BaseModel):
     phone: str
