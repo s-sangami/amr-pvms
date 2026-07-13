@@ -49,8 +49,10 @@ def on_startup():
             conn.execute(text("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS verified_at TIMESTAMP"))
             conn.execute(text("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS dispensed_at TIMESTAMP"))
             conn.execute(text("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS visit_id VARCHAR"))
+            conn.execute(text("ALTER TABLE patients ADD COLUMN IF NOT EXISTS consent_given BOOLEAN DEFAULT FALSE"))
+            conn.execute(text("ALTER TABLE patients ADD COLUMN IF NOT EXISTS consent_date TIMESTAMP"))
             conn.commit()
-        print("Migration check complete (verified_at/dispensed_at)")
+        print("Migration check complete (verified_at/dispensed_at/visit_id/consent)")
     except Exception as e:
         print(f"Could not connect to DB on startup: {e}")
     if risk_model is None:
@@ -103,6 +105,11 @@ def send_otp(payload: OTPRequest):
 
 @app.post("/auth/signup", response_model=PatientOut)
 def signup(payload: PatientSignup, db: Session = Depends(get_db)):
+    from datetime import datetime
+
+    if not payload.consent_given:
+        raise HTTPException(status_code=400, detail="Consent to the Privacy Notice is required to create an account")
+
     existing = db.query(models.Patient).filter(
         (models.Patient.abha_id == payload.abha_id) |
         (models.Patient.phone == payload.phone)
@@ -116,6 +123,8 @@ def signup(payload: PatientSignup, db: Session = Depends(get_db)):
         phone=payload.phone,
         password_hash=auth.hash_password(payload.password),
         profile_completed=False,
+        consent_given=payload.consent_given,
+        consent_date=datetime.utcnow(),
     )
     db.add(patient)
     db.commit()
