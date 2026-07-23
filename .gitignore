@@ -6,3 +6,13 @@ patient-backend/.env
 patient-backend/*.db
 patient-app/node_modules/
 patient-app/.expo/
+
+hospital-backend/target/
+hospital-backend/.mvn/
+hospital-backend/*.class
+hospital-backend/.idea/
+hospital-backend/*.iml
+hospital-site/node_modules/
+hospital-site/dist/
+hospital-site/build/
+hospital-site/.env
