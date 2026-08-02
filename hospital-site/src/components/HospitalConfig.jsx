@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import { decodeToken } from '../utils/jwt';
 import './Shared.css';
 
 const API = 'http://localhost:8080';
@@ -8,7 +9,8 @@ function HospitalConfig() {
   const [doctors, setDoctors] = useState([]);
   const token = sessionStorage.getItem('token');
   const auth = { headers: { Authorization: `Bearer ${token}` } };
-  const hospitalId = 1;
+  const user = decodeToken();
+  const hospitalId = user?.facilityId;
 
   const fetchDoctors = async () => {
     try {
@@ -24,7 +26,7 @@ function HospitalConfig() {
       <div className="page-header">
         <div>
           <h1>Hospital Configuration</h1>
-          <p>Kaveri Hospital · Admin oversight</p>
+          <p>{user?.facilityName || 'Hospital'} · Admin oversight</p>
         </div>
       </div>
 
