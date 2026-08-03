@@ -6,4 +6,6 @@ import lombok.Data;
 public class HospitalRequest {
     private String name;
     private String type;
+    private String registrationNumber;
+    private String gstin;
 }

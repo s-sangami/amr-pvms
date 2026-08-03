@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { decodeToken } from '../utils/jwt';
 
-const API = 'http://localhost:8080';
+import { API } from '../config';
 
 const buildHistoryStats = (history) => {
   const now = new Date();

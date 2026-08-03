@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { decodeToken } from '../utils/jwt';
+import { API } from '../config';
 import './Shared.css';
-
-const API = 'http://localhost:8080';
 
 function HospitalConfig() {
   const [doctors, setDoctors] = useState([]);

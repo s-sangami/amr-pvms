@@ -2,8 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import TopBar from './TopBar';
 import { decodeToken } from '../utils/jwt';
-
-const API = 'http://localhost:8080';
+import { API } from '../config';
 
 function ReceptionPortal() {
   const [abha, setAbha] = useState('');
@@ -128,7 +127,6 @@ const doctorNameFor = (doctorId) => {
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          {/* Left: Check-in form */}
           <div>
             <div className="mt-card">
               <div className="mt-card-title">Patient check-in</div>
@@ -185,7 +183,6 @@ const doctorNameFor = (doctorId) => {
             </div>
           </div>
 
-          {/* Right: Doctor availability panel */}
           <div>
             <div className="mt-card">
               <div className="mt-card-title">👨‍⚕️ Doctor availability</div>
@@ -208,7 +205,6 @@ const doctorNameFor = (doctorId) => {
           </div>
         </div>
 
-        {/* Patient queue list */}
         <div className="mt-card">
           <div className="mt-card-title">🧑‍🤝‍🧑 Patients checked in today ({queue.length})</div>
           {queue.length === 0 ? (

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { API } from '../config';
 import './Login.css';
 
 const typeLabels = {
@@ -60,10 +61,10 @@ function Entry() {
 
   const loadFacilities = async () => {
     if (hospitalType) {
-      const res = await axios.get('http://localhost:8080/hospital/list');
+      const res = await axios.get(`${API}/hospital/list`);
       setFacilities(res.data.filter(h => h.type === facilityType));
     } else {
-      const res = await axios.get('http://localhost:8080/pharmacy-facility/list');
+      const res = await axios.get(`${API}/pharmacy-facility/list`);
       setFacilities(res.data.filter(f => f.type === facilityType));
     }
   };
@@ -73,7 +74,7 @@ function Entry() {
     setLoginError('');
     setLoading(true);
     try {
-      const res = await axios.post('http://localhost:8080/auth/login', { username, password });
+      const res = await axios.post(`${API}/auth/login`, { username, password });
       const { token, role, fullName } = res.data;
       sessionStorage.setItem('token', token);
       sessionStorage.setItem('role', role);
@@ -97,8 +98,8 @@ function Entry() {
     setFacilityMsg('');
     try {
       const url = hospitalType
-        ? 'http://localhost:8080/hospital/register'
-        : 'http://localhost:8080/pharmacy-facility/register';
+        ? `${API}/hospital/register`
+        : `${API}/pharmacy-facility/register`;
 
       await axios.post(url, {
         name: facilityName,
@@ -114,7 +115,7 @@ function Entry() {
   const verifyHpr = async () => {
     setHprErr(''); setHprInfo(null); setHprVerified(false); setHprVerifying(true);
     try {
-      const r = await axios.get(`http://localhost:8080/abdm/verify-hpr/${encodeURIComponent(hprId)}`);
+      const r = await axios.get(`${API}/abdm/verify-hpr/${encodeURIComponent(hprId)}`);
       if (r.data.verified) {
         setHprVerified(true);
         setHprInfo(r.data);
@@ -155,7 +156,7 @@ function Entry() {
         hprId: staffForm.role === 'DOCTOR' ? hprId : null,
         hprVerified: staffForm.role === 'DOCTOR' ? hprVerified : null,
       };
-      await axios.post('http://localhost:8080/auth/register', payload);
+      await axios.post(`${API}/auth/register`, payload);
       setStaffMsg('Staff account created! You can now sign in.');
       setStaffForm({ username: '', password: '', fullName: '', role: hospitalType ? 'DOCTOR' : 'PHARMACY', facilityId: '' });
       setHprId(''); setHprVerified(false); setHprInfo(null);

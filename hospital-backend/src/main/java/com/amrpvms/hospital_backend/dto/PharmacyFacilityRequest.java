@@ -6,4 +6,6 @@ import lombok.Data;
 public class PharmacyFacilityRequest {
     private String name;
     private String type;
+    private String drugLicenseNumber;
+    private String gstin;
 }

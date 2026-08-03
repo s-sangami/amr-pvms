@@ -48,6 +48,10 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // Admin-only facility verification — must come BEFORE the broader permitAll below
+                        .requestMatchers("/hospital/*/verify", "/hospital/*/reject",
+                                "/pharmacy-facility/*/verify", "/pharmacy-facility/*/reject")
+                        .hasRole("ADMIN")
                         .requestMatchers("/auth/**", "/patient/**", "/hospital/**", "/pharmacy-facility/**", "/abdm/**").permitAll()
                         .requestMatchers("/drugs/**").hasAnyRole("DOCTOR", "ADMIN", "PHARMACY")
                         .requestMatchers(org.springframework.http.HttpMethod.DELETE, "/reception/visit/**").hasAnyRole("DOCTOR", "RECEPTION", "ADMIN")

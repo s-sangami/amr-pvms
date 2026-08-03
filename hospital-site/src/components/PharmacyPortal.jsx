@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Html5Qrcode } from 'html5-qrcode';
 import { decodeToken } from '../utils/jwt';
 
-const API = 'http://localhost:8080';
+import { API } from '../config';
 
 function PharmacyPortal() {
   const pharmacyId = decodeToken()?.facilityId;
