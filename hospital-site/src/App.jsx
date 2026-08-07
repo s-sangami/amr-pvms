@@ -37,7 +37,7 @@ function App() {
           } />
 
           <Route path="/config" element={
-            <ProtectedRoute allowedRoles={['ADMIN']}>
+            <ProtectedRoute allowedRoles={['ADMIN', 'SUPER_ADMIN']}>
               <HospitalConfig />
             </ProtectedRoute>
           } />
