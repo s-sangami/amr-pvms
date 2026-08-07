@@ -16,6 +16,7 @@ function HospitalConfig() {
   const user = decodeToken();
   const hospitalId = user?.facilityId;
   const adminUsername = user?.username;
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
 
   const fetchDoctors = async () => {
     try {
@@ -36,8 +37,11 @@ function HospitalConfig() {
   };
 
   useEffect(() => {
-    fetchDoctors();
-    fetchPendingFacilities();
+    if (isSuperAdmin) {
+      fetchPendingFacilities();
+    } else {
+      fetchDoctors();
+    }
   }, []);
 
   const verifyHospital = async (id) => {
@@ -86,109 +90,194 @@ function HospitalConfig() {
     }
   };
 
+  const cardStyle = {
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: 16,
+    padding: '1.75rem',
+    marginBottom: '1.5rem',
+    backdropFilter: 'blur(8px)',
+  };
+
+  const sectionTitleStyle = {
+    fontSize: '1rem',
+    fontWeight: 700,
+    color: '#F1F5F9',
+    marginBottom: '0.35rem',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+  };
+
+  const btnPrimary = {
+    padding: '0.5rem 1.1rem',
+    fontSize: '0.8rem',
+    fontWeight: 600,
+    borderRadius: 8,
+    border: 'none',
+    cursor: 'pointer',
+    background: '#1D9E75',
+    color: '#fff',
+  };
+
+  const btnDanger = {
+    ...btnPrimary,
+    background: 'rgba(163,45,45,0.9)',
+  };
+
   return (
-    <div className="page" style={{ minHeight: '100vh', padding: '2rem' }}>
-      <div className="page-header">
-        <div>
-          <h1>Hospital Configuration</h1>
-          <p>{user?.facilityName || 'Hospital'} · Admin oversight</p>
+    <div className="page" style={{ minHeight: '100vh', padding: '2.5rem', background: 'linear-gradient(180deg, #0B1220 0%, #0F1B2E 100%)' }}>
+      <div style={{ maxWidth: 680, margin: '0 auto' }}>
+        <div style={{ marginBottom: '2rem' }}>
+          <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#fff', margin: 0, fontFamily: "'Space Grotesk', sans-serif" }}>
+            {isSuperAdmin ? 'Platform Administration' : 'Hospital Configuration'}
+          </h1>
+          <p style={{ color: '#94A3B8', fontSize: '0.9rem', marginTop: 4 }}>
+            {isSuperAdmin ? 'Super Admin · Platform oversight' : `${user?.facilityName || 'Hospital'} · Admin oversight`}
+          </p>
         </div>
-      </div>
 
-      {verifyMsg && <p style={{ color: '#1D9E75', fontSize: '0.85rem' }}>{verifyMsg}</p>}
-      {verifyErr && <p style={{ color: '#A32D2D', fontSize: '0.85rem' }}>{String(verifyErr)}</p>}
-
-      {/* Pending facility verification */}
-      <div className="card" style={{ maxWidth: 640, marginBottom: '1.5rem' }}>
-        <h3 style={{ marginTop: 0, fontSize: '1rem' }}>Pending facility verification</h3>
-        <p style={{ fontSize: '0.8rem', color: '#9db3b8', marginTop: '-0.5rem' }}>
-          Check each registration number against real state/government records before verifying.
-        </p>
-
-        {pendingHospitals.length === 0 && pendingPharmacies.length === 0 ? (
-          <p style={{ fontSize: '0.85rem', color: '#9db3b8' }}>No facilities awaiting verification.</p>
-        ) : (
-          <>
-            {pendingHospitals.map(h => (
-              <div key={`h-${h.id}`} style={{
-                border: '1px solid #eee', borderRadius: 8, padding: '0.75rem',
-                marginBottom: '0.6rem',
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <strong>{h.name}</strong> <span style={{ fontSize: '0.7rem', color: '#9db3b8' }}>(Hospital)</span>
-                    <div style={{ fontSize: '0.75rem', color: '#5B6B79', marginTop: 2 }}>
-                      Reg #: {h.registrationNumber || '—'} {h.gstin ? `· GSTIN: ${h.gstin}` : ''}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button className="btn" style={{ padding: '0.35rem 0.8rem', fontSize: '0.8rem' }} onClick={() => verifyHospital(h.id)}>
-                      Verify
-                    </button>
-                    <button className="btn" style={{ padding: '0.35rem 0.8rem', fontSize: '0.8rem', background: '#A32D2D' }} onClick={() => rejectHospital(h.id)}>
-                      Reject
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-
-            {pendingPharmacies.map(p => (
-              <div key={`p-${p.id}`} style={{
-                border: '1px solid #eee', borderRadius: 8, padding: '0.75rem',
-                marginBottom: '0.6rem',
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <strong>{p.name}</strong> <span style={{ fontSize: '0.7rem', color: '#9db3b8' }}>(Pharmacy)</span>
-                    <div style={{ fontSize: '0.75rem', color: '#5B6B79', marginTop: 2 }}>
-                      Drug License #: {p.drugLicenseNumber || '—'} {p.gstin ? `· GSTIN: ${p.gstin}` : ''}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button className="btn" style={{ padding: '0.35rem 0.8rem', fontSize: '0.8rem' }} onClick={() => verifyPharmacy(p.id)}>
-                      Verify
-                    </button>
-                    <button className="btn" style={{ padding: '0.35rem 0.8rem', fontSize: '0.8rem', background: '#A32D2D' }} onClick={() => rejectPharmacy(p.id)}>
-                      Reject
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </>
-        )}
-      </div>
-
-      <div className="card" style={{ maxWidth: 640 }}>
-        <h3 style={{ marginTop: 0, fontSize: '1rem' }}>Doctor availability</h3>
-        <p style={{ fontSize: '0.8rem', color: '#9db3b8', marginTop: '-0.5rem' }}>
-          Doctors manage their own leave — this is a read-only view.
-        </p>
-        {doctors.length === 0 ? (
-          <p style={{ fontSize: '0.85rem', color: '#9db3b8' }}>No doctors found for this hospital.</p>
-        ) : doctors.map(doc => (
-          <div key={doc.id} style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            padding: '0.6rem 0', borderBottom: '1px solid #eee',
+        {(verifyMsg || verifyErr) && (
+          <div style={{
+            padding: '0.75rem 1rem', borderRadius: 10, marginBottom: '1.25rem',
+            fontSize: '0.85rem', fontWeight: 500,
+            background: verifyErr ? 'rgba(163,45,45,0.15)' : 'rgba(29,158,117,0.15)',
+            color: verifyErr ? '#F87171' : '#4ADE80',
+            border: `1px solid ${verifyErr ? 'rgba(163,45,45,0.3)' : 'rgba(29,158,117,0.3)'}`,
           }}>
-            <div>
-              <strong>{doc.fullName}</strong>
-              {!doc.available && (
-                <div style={{ fontSize: '0.75rem', color: '#A32D2D' }}>
-                  On leave until {doc.leaveUntil} {doc.reason ? `· ${doc.reason}` : ''}
-                  {doc.substituteName ? ` — Substitute: Dr. ${doc.substituteName}` : ''}
-                </div>
-              )}
-            </div>
-            <span style={{
-              fontSize: '0.75rem', fontWeight: 600,
-              color: doc.available ? '#1D9E75' : '#A32D2D',
-            }}>
-              {doc.available ? '● Available' : '● On leave'}
-            </span>
+            {verifyErr ? String(verifyErr) : verifyMsg}
           </div>
-        ))}
+        )}
+
+        {/* Pending facility verification — Super Admin only */}
+        {isSuperAdmin && (
+          <div style={cardStyle}>
+            <div style={sectionTitleStyle}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#F59E0B', display: 'inline-block' }} />
+              Pending Facility Verification
+            </div>
+            <p style={{ fontSize: '0.8rem', color: '#64748B', marginTop: 0, marginBottom: '1.25rem' }}>
+              Check each registration number against real state/government records before verifying.
+            </p>
+
+            {pendingHospitals.length === 0 && pendingPharmacies.length === 0 ? (
+              <div style={{
+                padding: '2rem', textAlign: 'center', color: '#475569',
+                background: 'rgba(255,255,255,0.02)', borderRadius: 10,
+              }}>
+                <div style={{ fontSize: '1.5rem', marginBottom: 6 }}>✓</div>
+                <p style={{ fontSize: '0.85rem', margin: 0 }}>No facilities awaiting verification</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {pendingHospitals.map(h => (
+                  <div key={`h-${h.id}`} style={{
+                    background: 'rgba(255,255,255,0.03)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: 12, padding: '1rem 1.25rem',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <strong style={{ color: '#F1F5F9', fontSize: '0.95rem' }}>{h.name}</strong>
+                        <span style={{
+                          fontSize: '0.65rem', fontWeight: 700, letterSpacing: 0.5,
+                          color: '#93C5FD', background: 'rgba(59,130,246,0.15)',
+                          padding: '2px 8px', borderRadius: 20, textTransform: 'uppercase',
+                        }}>Hospital</span>
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: '#64748B', marginTop: 4 }}>
+                        Reg #: {h.registrationNumber || '—'} {h.gstin ? `· GSTIN: ${h.gstin}` : ''}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button style={btnPrimary} onClick={() => verifyHospital(h.id)}>Verify</button>
+                      <button style={btnDanger} onClick={() => rejectHospital(h.id)}>Reject</button>
+                    </div>
+                  </div>
+                ))}
+
+                {pendingPharmacies.map(p => (
+                  <div key={`p-${p.id}`} style={{
+                    background: 'rgba(255,255,255,0.03)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: 12, padding: '1rem 1.25rem',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <strong style={{ color: '#F1F5F9', fontSize: '0.95rem' }}>{p.name}</strong>
+                        <span style={{
+                          fontSize: '0.65rem', fontWeight: 700, letterSpacing: 0.5,
+                          color: '#FDBA74', background: 'rgba(249,115,22,0.15)',
+                          padding: '2px 8px', borderRadius: 20, textTransform: 'uppercase',
+                        }}>Pharmacy</span>
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: '#64748B', marginTop: 4 }}>
+                        Drug License #: {p.drugLicenseNumber || '—'} {p.gstin ? `· GSTIN: ${p.gstin}` : ''}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button style={btnPrimary} onClick={() => verifyPharmacy(p.id)}>Verify</button>
+                      <button style={btnDanger} onClick={() => rejectPharmacy(p.id)}>Reject</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Doctor availability — regular hospital admins only */}
+        {!isSuperAdmin && (
+          <div style={cardStyle}>
+            <div style={sectionTitleStyle}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#3B82F6', display: 'inline-block' }} />
+              Doctor Availability
+            </div>
+            <p style={{ fontSize: '0.8rem', color: '#64748B', marginTop: 0, marginBottom: '1.25rem' }}>
+              Doctors manage their own leave — this is a read-only view.
+            </p>
+
+            {doctors.length === 0 ? (
+              <div style={{
+                padding: '2rem', textAlign: 'center', color: '#475569',
+                background: 'rgba(255,255,255,0.02)', borderRadius: 10,
+              }}>
+                <p style={{ fontSize: '0.85rem', margin: 0 }}>No doctors found for this hospital</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {doctors.map(doc => (
+                  <div key={doc.id} style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '0.85rem 1.1rem',
+                    background: 'rgba(255,255,255,0.03)',
+                    border: '1px solid rgba(255,255,255,0.06)',
+                    borderRadius: 10,
+                  }}>
+                    <div>
+                      <strong style={{ color: '#F1F5F9', fontSize: '0.9rem' }}>{doc.fullName}</strong>
+                      {!doc.available && (
+                        <div style={{ fontSize: '0.75rem', color: '#F87171', marginTop: 2 }}>
+                          On leave until {doc.leaveUntil} {doc.reason ? `· ${doc.reason}` : ''}
+                          {doc.substituteName ? ` — Substitute: Dr. ${doc.substituteName}` : ''}
+                        </div>
+                      )}
+                    </div>
+                    <span style={{
+                      fontSize: '0.72rem', fontWeight: 700, padding: '4px 10px', borderRadius: 20,
+                      color: doc.available ? '#4ADE80' : '#F87171',
+                      background: doc.available ? 'rgba(29,158,117,0.15)' : 'rgba(163,45,45,0.15)',
+                    }}>
+                      {doc.available ? '● Available' : '● On leave'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

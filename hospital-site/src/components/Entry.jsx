@@ -82,11 +82,11 @@ function Entry() {
       sessionStorage.setItem('role', role);
       sessionStorage.setItem('fullName', fullName);
 
-      if (role === 'DOCTOR') navigate('/doctor');
-      else if (role === 'ADMIN') navigate('/config');
-      else if (role === 'RECEPTION') navigate('/reception');
-      else if (role === 'PHARMACY') navigate('/pharmacy');
-      else navigate('/');
+if (role === 'DOCTOR') navigate('/doctor');
+else if (role === 'ADMIN' || role === 'SUPER_ADMIN') navigate('/config');
+else if (role === 'RECEPTION') navigate('/reception');
+else if (role === 'PHARMACY') navigate('/pharmacy');
+else navigate('/');
     } catch {
       setLoginError('Invalid username or password');
     } finally {
