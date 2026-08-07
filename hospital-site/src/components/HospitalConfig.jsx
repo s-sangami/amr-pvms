@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import TopBar from './TopBar';
 import { decodeToken } from '../utils/jwt';
 import { API } from '../config';
-import './Shared.css';
 
 function HospitalConfig() {
   const [doctors, setDoctors] = useState([]);
@@ -10,6 +10,8 @@ function HospitalConfig() {
   const [pendingPharmacies, setPendingPharmacies] = useState([]);
   const [verifyMsg, setVerifyMsg] = useState('');
   const [verifyErr, setVerifyErr] = useState('');
+  const [now, setNow] = useState(new Date());
+  const [refreshing, setRefreshing] = useState(false);
 
   const token = sessionStorage.getItem('token');
   const auth = { headers: { Authorization: `Bearer ${token}` } };
@@ -17,6 +19,11 @@ function HospitalConfig() {
   const hospitalId = user?.facilityId;
   const adminUsername = user?.username;
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+
+  useEffect(() => {
+    const clock = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(clock);
+  }, []);
 
   const fetchDoctors = async () => {
     try {
@@ -37,12 +44,16 @@ function HospitalConfig() {
   };
 
   useEffect(() => {
-    if (isSuperAdmin) {
-      fetchPendingFacilities();
-    } else {
-      fetchDoctors();
-    }
+    if (isSuperAdmin) fetchPendingFacilities();
+    else fetchDoctors();
   }, []);
+
+  const refresh = async () => {
+    setRefreshing(true);
+    if (isSuperAdmin) await fetchPendingFacilities();
+    else await fetchDoctors();
+    setTimeout(() => setRefreshing(false), 400);
+  };
 
   const verifyHospital = async (id) => {
     setVerifyMsg(''); setVerifyErr('');
@@ -50,9 +61,7 @@ function HospitalConfig() {
       await axios.post(`${API}/hospital/${id}/verify?adminUsername=${encodeURIComponent(adminUsername)}`, {}, auth);
       setVerifyMsg('Hospital verified.');
       fetchPendingFacilities();
-    } catch (e) {
-      setVerifyErr(e.response?.data || 'Failed to verify hospital.');
-    }
+    } catch (e) { setVerifyErr(e.response?.data || 'Failed to verify hospital.'); }
   };
 
   const rejectHospital = async (id) => {
@@ -62,9 +71,7 @@ function HospitalConfig() {
       await axios.post(`${API}/hospital/${id}/reject?adminUsername=${encodeURIComponent(adminUsername)}`, {}, auth);
       setVerifyMsg('Hospital rejected.');
       fetchPendingFacilities();
-    } catch (e) {
-      setVerifyErr(e.response?.data || 'Failed to reject hospital.');
-    }
+    } catch (e) { setVerifyErr(e.response?.data || 'Failed to reject hospital.'); }
   };
 
   const verifyPharmacy = async (id) => {
@@ -73,9 +80,7 @@ function HospitalConfig() {
       await axios.post(`${API}/pharmacy-facility/${id}/verify?adminUsername=${encodeURIComponent(adminUsername)}`, {}, auth);
       setVerifyMsg('Pharmacy verified.');
       fetchPendingFacilities();
-    } catch (e) {
-      setVerifyErr(e.response?.data || 'Failed to verify pharmacy.');
-    }
+    } catch (e) { setVerifyErr(e.response?.data || 'Failed to verify pharmacy.'); }
   };
 
   const rejectPharmacy = async (id) => {
@@ -85,197 +90,117 @@ function HospitalConfig() {
       await axios.post(`${API}/pharmacy-facility/${id}/reject?adminUsername=${encodeURIComponent(adminUsername)}`, {}, auth);
       setVerifyMsg('Pharmacy rejected.');
       fetchPendingFacilities();
-    } catch (e) {
-      setVerifyErr(e.response?.data || 'Failed to reject pharmacy.');
-    }
+    } catch (e) { setVerifyErr(e.response?.data || 'Failed to reject pharmacy.'); }
   };
 
-  const cardStyle = {
-    background: 'rgba(255,255,255,0.04)',
-    border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: 16,
-    padding: '1.75rem',
-    marginBottom: '1.5rem',
-    backdropFilter: 'blur(8px)',
-  };
-
-  const sectionTitleStyle = {
-    fontSize: '1rem',
-    fontWeight: 700,
-    color: '#F1F5F9',
-    marginBottom: '0.35rem',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-  };
-
-  const btnPrimary = {
-    padding: '0.5rem 1.1rem',
-    fontSize: '0.8rem',
-    fontWeight: 600,
-    borderRadius: 8,
-    border: 'none',
-    cursor: 'pointer',
-    background: '#1D9E75',
-    color: '#fff',
-  };
-
-  const btnDanger = {
-    ...btnPrimary,
-    background: 'rgba(163,45,45,0.9)',
-  };
+  const dateStr = now.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const timeStr = now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
   return (
-    <div className="page" style={{ minHeight: '100vh', padding: '2.5rem', background: 'linear-gradient(180deg, #0B1220 0%, #0F1B2E 100%)' }}>
-      <div style={{ maxWidth: 680, margin: '0 auto' }}>
-        <div style={{ marginBottom: '2rem' }}>
-          <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#fff', margin: 0, fontFamily: "'Space Grotesk', sans-serif" }}>
-            {isSuperAdmin ? 'Platform Administration' : 'Hospital Configuration'}
-          </h1>
-          <p style={{ color: '#94A3B8', fontSize: '0.9rem', marginTop: 4 }}>
-            {isSuperAdmin ? 'Super Admin · Platform oversight' : `${user?.facilityName || 'Hospital'} · Admin oversight`}
-          </p>
+    <div>
+      <TopBar />
+      <div className="mt-page">
+        <div className="mt-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--c-navy)', fontFamily: "'Space Grotesk', sans-serif" }}>
+              Welcome, {isSuperAdmin ? 'Super Admin' : 'Admin'}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{dateStr}</div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 18, fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif", color: 'var(--c-amber-dark)' }}>
+              {timeStr}
+            </div>
+            <button className="mt-btn mt-btn-outline" style={{ fontSize: 10, padding: '4px 10px', marginTop: 4 }} onClick={refresh} disabled={refreshing}>
+              {refreshing ? 'Refreshing…' : '↻ Refresh'}
+            </button>
+          </div>
         </div>
 
         {(verifyMsg || verifyErr) && (
-          <div style={{
-            padding: '0.75rem 1rem', borderRadius: 10, marginBottom: '1.25rem',
-            fontSize: '0.85rem', fontWeight: 500,
-            background: verifyErr ? 'rgba(163,45,45,0.15)' : 'rgba(29,158,117,0.15)',
-            color: verifyErr ? '#F87171' : '#4ADE80',
-            border: `1px solid ${verifyErr ? 'rgba(163,45,45,0.3)' : 'rgba(29,158,117,0.3)'}`,
-          }}>
+          <div className={`alert-box ${verifyErr ? 'alert-red' : 'alert-green'}`}>
             {verifyErr ? String(verifyErr) : verifyMsg}
           </div>
         )}
 
-        {/* Pending facility verification — Super Admin only */}
         {isSuperAdmin && (
-          <div style={cardStyle}>
-            <div style={sectionTitleStyle}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#F59E0B', display: 'inline-block' }} />
-              Pending Facility Verification
-            </div>
-            <p style={{ fontSize: '0.8rem', color: '#64748B', marginTop: 0, marginBottom: '1.25rem' }}>
+          <div className="mt-card">
+            <div className="mt-card-title">🛡 Pending facility verification</div>
+            <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: -6, marginBottom: 10 }}>
               Check each registration number against real state/government records before verifying.
             </p>
 
             {pendingHospitals.length === 0 && pendingPharmacies.length === 0 ? (
-              <div style={{
-                padding: '2rem', textAlign: 'center', color: '#475569',
-                background: 'rgba(255,255,255,0.02)', borderRadius: 10,
-              }}>
-                <div style={{ fontSize: '1.5rem', marginBottom: 6 }}>✓</div>
-                <p style={{ fontSize: '0.85rem', margin: 0 }}>No facilities awaiting verification</p>
-              </div>
+              <p style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', padding: '1.5rem 0' }}>
+                No facilities awaiting verification.
+              </p>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <>
                 {pendingHospitals.map(h => (
-                  <div key={`h-${h.id}`} style={{
-                    background: 'rgba(255,255,255,0.03)',
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    borderRadius: 12, padding: '1rem 1.25rem',
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <strong style={{ color: '#F1F5F9', fontSize: '0.95rem' }}>{h.name}</strong>
-                        <span style={{
-                          fontSize: '0.65rem', fontWeight: 700, letterSpacing: 0.5,
-                          color: '#93C5FD', background: 'rgba(59,130,246,0.15)',
-                          padding: '2px 8px', borderRadius: 20, textTransform: 'uppercase',
-                        }}>Hospital</span>
+                  <div key={`h-${h.id}`} className="prow">
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>
+                        {h.name} <span className="badge badge-gray" style={{ marginLeft: 6 }}>Hospital</span>
                       </div>
-                      <div style={{ fontSize: '0.78rem', color: '#64748B', marginTop: 4 }}>
+                      <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
                         Reg #: {h.registrationNumber || '—'} {h.gstin ? `· GSTIN: ${h.gstin}` : ''}
                       </div>
                     </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button style={btnPrimary} onClick={() => verifyHospital(h.id)}>Verify</button>
-                      <button style={btnDanger} onClick={() => rejectHospital(h.id)}>Reject</button>
-                    </div>
+                    <button className="mt-btn mt-btn-green" style={{ padding: '4px 12px', fontSize: 11, marginRight: 6 }} onClick={() => verifyHospital(h.id)}>
+                      Verify
+                    </button>
+                    <button className="mt-btn mt-btn-red" style={{ padding: '4px 12px', fontSize: 11 }} onClick={() => rejectHospital(h.id)}>
+                      Reject
+                    </button>
                   </div>
                 ))}
 
                 {pendingPharmacies.map(p => (
-                  <div key={`p-${p.id}`} style={{
-                    background: 'rgba(255,255,255,0.03)',
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    borderRadius: 12, padding: '1rem 1.25rem',
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <strong style={{ color: '#F1F5F9', fontSize: '0.95rem' }}>{p.name}</strong>
-                        <span style={{
-                          fontSize: '0.65rem', fontWeight: 700, letterSpacing: 0.5,
-                          color: '#FDBA74', background: 'rgba(249,115,22,0.15)',
-                          padding: '2px 8px', borderRadius: 20, textTransform: 'uppercase',
-                        }}>Pharmacy</span>
+                  <div key={`p-${p.id}`} className="prow">
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>
+                        {p.name} <span className="badge badge-gray" style={{ marginLeft: 6 }}>Pharmacy</span>
                       </div>
-                      <div style={{ fontSize: '0.78rem', color: '#64748B', marginTop: 4 }}>
+                      <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
                         Drug License #: {p.drugLicenseNumber || '—'} {p.gstin ? `· GSTIN: ${p.gstin}` : ''}
                       </div>
                     </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button style={btnPrimary} onClick={() => verifyPharmacy(p.id)}>Verify</button>
-                      <button style={btnDanger} onClick={() => rejectPharmacy(p.id)}>Reject</button>
-                    </div>
+                    <button className="mt-btn mt-btn-green" style={{ padding: '4px 12px', fontSize: 11, marginRight: 6 }} onClick={() => verifyPharmacy(p.id)}>
+                      Verify
+                    </button>
+                    <button className="mt-btn mt-btn-red" style={{ padding: '4px 12px', fontSize: 11 }} onClick={() => rejectPharmacy(p.id)}>
+                      Reject
+                    </button>
                   </div>
                 ))}
-              </div>
+              </>
             )}
           </div>
         )}
 
-        {/* Doctor availability — regular hospital admins only */}
         {!isSuperAdmin && (
-          <div style={cardStyle}>
-            <div style={sectionTitleStyle}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#3B82F6', display: 'inline-block' }} />
-              Doctor Availability
-            </div>
-            <p style={{ fontSize: '0.8rem', color: '#64748B', marginTop: 0, marginBottom: '1.25rem' }}>
-              Doctors manage their own leave — this is a read-only view.
-            </p>
-
+          <div className="mt-card">
+            <div className="mt-card-title">👨‍⚕️ Doctor availability</div>
             {doctors.length === 0 ? (
-              <div style={{
-                padding: '2rem', textAlign: 'center', color: '#475569',
-                background: 'rgba(255,255,255,0.02)', borderRadius: 10,
-              }}>
-                <p style={{ fontSize: '0.85rem', margin: 0 }}>No doctors found for this hospital</p>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {doctors.map(doc => (
-                  <div key={doc.id} style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    padding: '0.85rem 1.1rem',
-                    background: 'rgba(255,255,255,0.03)',
-                    border: '1px solid rgba(255,255,255,0.06)',
-                    borderRadius: 10,
-                  }}>
-                    <div>
-                      <strong style={{ color: '#F1F5F9', fontSize: '0.9rem' }}>{doc.fullName}</strong>
-                      {!doc.available && (
-                        <div style={{ fontSize: '0.75rem', color: '#F87171', marginTop: 2 }}>
-                          On leave until {doc.leaveUntil} {doc.reason ? `· ${doc.reason}` : ''}
-                          {doc.substituteName ? ` — Substitute: Dr. ${doc.substituteName}` : ''}
-                        </div>
-                      )}
+              <p style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', padding: '1.5rem 0' }}>
+                No doctors found for this hospital.
+              </p>
+            ) : doctors.map(doc => (
+              <div key={doc.id} className="prow">
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600 }}>{doc.fullName}</div>
+                  {!doc.available && (
+                    <div style={{ fontSize: 10, color: 'var(--c-red)' }}>
+                      On leave until {doc.leaveUntil} {doc.reason ? `· ${doc.reason}` : ''}
+                      {doc.substituteName ? ` · Substitute: Dr. ${doc.substituteName}` : ''}
                     </div>
-                    <span style={{
-                      fontSize: '0.72rem', fontWeight: 700, padding: '4px 10px', borderRadius: 20,
-                      color: doc.available ? '#4ADE80' : '#F87171',
-                      background: doc.available ? 'rgba(29,158,117,0.15)' : 'rgba(163,45,45,0.15)',
-                    }}>
-                      {doc.available ? '● Available' : '● On leave'}
-                    </span>
-                  </div>
-                ))}
+                  )}
+                </div>
+                <span className={`badge ${doc.available ? 'badge-green' : 'badge-red'}`}>
+                  {doc.available ? 'Available' : 'On leave'}
+                </span>
               </div>
-            )}
+            ))}
           </div>
         )}
       </div>
