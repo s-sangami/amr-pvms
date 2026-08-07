@@ -363,26 +363,9 @@ public class PrescriptionController {
                 .filter(p -> group.getId().equals(p.getPrescriptionGroupId()))
                 .toList();
 
+        // No stock-availability check — pharmacies don't disclose inventory levels.
+        // Dispensing succeeds as long as the prescription itself is valid and routed correctly.
         for (Prescription item : items) {
-            Optional<PharmacyStock> stockOpt = pharmacyStockRepository.findByPharmacyIdAndDrug(pharmacyId, item.getDrug());
-            if (stockOpt.isEmpty() || stockOpt.get().getQuantity() < 1) {
-                DispensingLog log = new DispensingLog();
-                log.setPharmacyId(pharmacyId);
-                log.setPrescriptionId(item.getId());
-                log.setDrugName(item.getDrug());
-                log.setStatus("REJECTED");
-                log.setRejectReason(stockOpt.isEmpty() ? "Drug not stocked at this pharmacy" : "Insufficient stock");
-                log.setDispensedAt(LocalDateTime.now());
-                dispensingLogRepository.save(log);
-                return ResponseEntity.status(409).body(item.getDrug() + " is not available at this pharmacy. Nothing was dispensed.");
-            }
-        }
-
-        for (Prescription item : items) {
-            PharmacyStock stock = pharmacyStockRepository.findByPharmacyIdAndDrug(pharmacyId, item.getDrug()).get();
-            stock.setQuantity(stock.getQuantity() - 1);
-            pharmacyStockRepository.save(stock);
-
             DispensingLog log = new DispensingLog();
             log.setPharmacyId(pharmacyId);
             log.setPrescriptionId(item.getId());
