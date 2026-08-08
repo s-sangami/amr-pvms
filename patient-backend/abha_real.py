@@ -260,4 +260,4 @@ def verify_abha_confirm_otp(txn_id: str, otp: str):
         "verified": True,
         "abha_number": result["abha_number"],
         "name": result["name"],
-    }``
+    }
