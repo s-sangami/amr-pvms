@@ -42,6 +42,8 @@ function Entry() {
   const [loading, setLoading] = useState(false);
 
   const [facilityName, setFacilityName] = useState('');
+  const [registrationNumber, setRegistrationNumber] = useState('');
+  const [gstin, setGstin] = useState('');
   const [facilityMsg, setFacilityMsg] = useState('');
   const [facilityErr, setFacilityErr] = useState('');
 
@@ -80,11 +82,11 @@ function Entry() {
       sessionStorage.setItem('role', role);
       sessionStorage.setItem('fullName', fullName);
 
-      if (role === 'DOCTOR') navigate('/doctor');
-      else if (role === 'ADMIN') navigate('/config');
-      else if (role === 'RECEPTION') navigate('/reception');
-      else if (role === 'PHARMACY') navigate('/pharmacy');
-      else navigate('/');
+if (role === 'DOCTOR') navigate('/doctor');
+else if (role === 'ADMIN' || role === 'SUPER_ADMIN') navigate('/config');
+else if (role === 'RECEPTION') navigate('/reception');
+else if (role === 'PHARMACY') navigate('/pharmacy');
+else navigate('/');
     } catch {
       setLoginError('Invalid username or password');
     } finally {
@@ -101,12 +103,15 @@ function Entry() {
         ? `${API}/hospital/register`
         : `${API}/pharmacy-facility/register`;
 
-      await axios.post(url, {
-        name: facilityName,
-        type: facilityType,
-      });
-      setFacilityMsg('Facility registered! You can now add staff under it.');
+      const payload = hospitalType
+        ? { name: facilityName, type: facilityType, registrationNumber, gstin: gstin || null }
+        : { name: facilityName, type: facilityType, drugLicenseNumber: registrationNumber, gstin: gstin || null };
+
+      await axios.post(url, payload);
+      setFacilityMsg('Facility registered! It is pending admin verification before staff can be added.');
       setFacilityName('');
+      setRegistrationNumber('');
+      setGstin('');
     } catch (err) {
       setFacilityErr(err.response?.data || 'Registration failed.');
     }
@@ -226,6 +231,32 @@ function Entry() {
             <form onSubmit={handleRegisterFacility} className="entry-form" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <input className="plain" placeholder={`Facility name, e.g. ${hospitalType ? 'Kaveri' : 'Thulasi'}`} value={facilityName}
                 onChange={(e) => setFacilityName(e.target.value)} required />
+
+              <div>
+                <label style={{ fontSize: '0.72rem', fontWeight: 600, color: '#5B6B79', display: 'block', marginBottom: '0.3rem' }}>
+                  {hospitalType ? 'Registration Number' : 'Drug License Number'} (required)
+                </label>
+                <input
+                  className="plain"
+                  placeholder={hospitalType ? 'e.g. TN/CE/2024/00123' : 'e.g. DL-TN-20B-4567'}
+                  value={registrationNumber}
+                  onChange={(e) => setRegistrationNumber(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.72rem', fontWeight: 600, color: '#5B6B79', display: 'block', marginBottom: '0.3rem' }}>
+                  GSTIN (optional)
+                </label>
+                <input
+                  className="plain"
+                  placeholder="e.g. 33AAAAA0000A1Z5"
+                  value={gstin}
+                  onChange={(e) => setGstin(e.target.value)}
+                />
+              </div>
+
               {facilityErr && <p className="error">{String(facilityErr)}</p>}
               {facilityMsg && <p style={{ color: '#0e7c86', fontSize: '0.85rem' }}>{facilityMsg}</p>}
               <button className="btn" type="submit">Register Facility</button>
