@@ -36,6 +36,53 @@ app.add_middleware(
 
 SERVICE_API_KEY = os.getenv("SERVICE_API_KEY", "dev-service-key-123")
 
+@app.get("/debug/abdm-gateway-test")
+def debug_abdm_gateway_test():
+    """
+    Safe diagnostic endpoint — does NOT touch USE_REAL_ABHA or any real
+    flow. Just calls the ABDM gateway token endpoint directly and returns
+    the raw response so we can see the exact error body/headers, without
+    risking the live demo. Remove this once the 403 mystery is solved.
+    """
+    import uuid as _uuid
+    from datetime import datetime as _dt, timezone as _tz
+
+    client_id = os.getenv("ABDM_CLIENT_ID", "")
+    client_secret = os.getenv("ABDM_CLIENT_SECRET", "")
+
+    if not client_id or not client_secret:
+        return {"error": "ABDM_CLIENT_ID or ABDM_CLIENT_SECRET not set in environment"}
+
+    timestamp = _dt.now(_tz.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    headers = {
+        "Content-Type": "application/json",
+        "REQUEST-ID": str(_uuid.uuid4()),
+        "TIMESTAMP": timestamp,
+        "X-CM-ID": "sbx",
+    }
+    payload = {
+        "clientId": client_id,
+        "clientSecret": client_secret,
+        "grantType": "client_credentials",
+    }
+
+    import requests as _requests
+    try:
+        r = _requests.post(
+            "https://dev.abdm.gov.in/api/hiecm/gateway/v3/sessions",
+            headers=headers,
+            json=payload,
+            timeout=30,
+        )
+        return {
+            "status_code": r.status_code,
+            "response_headers": dict(r.headers),
+            "response_body": r.text[:2000],
+            "request_id_sent": headers["REQUEST-ID"],
+        }
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {str(e)}"}
+
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "risk_model.joblib")
 risk_model = None
 if os.path.exists(MODEL_PATH):
