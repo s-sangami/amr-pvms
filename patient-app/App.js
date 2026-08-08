@@ -9,24 +9,61 @@ import * as Clipboard from 'expo-clipboard';
 import { registerForPushNotificationsAsync } from './notifications';
 import ProfileCompletion from './ProfileCompletion';
 import BottomNav from './BottomNav';
-import PrescriptionDetail from './PrescriptionDetail';
 import FamilyTab from './FamilyTab';
 import BookTab from './BookTab';
 import QrTab from './QrTab';
+import PrivacyNotice from './PrivacyNotice';
 
 const API_BASE = 'https://amr-pvms.onrender.com';
 
-// ─── Helper: group prescriptions by date ───────────────────────────────────
-function groupByDate(prescriptions) {
+function groupByVisit(prescriptions) {
   const groups = {};
   prescriptions.forEach(p => {
-    const label = p.created_at
-      ? new Date(p.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
-      : 'Unknown date';
-    if (!groups[label]) groups[label] = [];
-    groups[label].push(p);
+    const key = p.visit_id || p.id;
+    if (!groups[key]) {
+      groups[key] = {
+        doctor_name: p.doctor_name,
+        hospital_name: p.hospital_name,
+        created_at: p.created_at,
+        drugs: [],
+      };
+    }
+    groups[key].drugs.push(p);
   });
-  return groups;
+  return Object.entries(groups).sort(
+    (a, b) => new Date(b[1].created_at) - new Date(a[1].created_at)
+  );
+}
+
+function formatVisitDate(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleString('en-IN', {
+    day: 'numeric', month: 'long', year: 'numeric', hour: 'numeric', minute: '2-digit',
+  });
+}
+
+// Computes the 3-state course tag: Issued -> Active -> Course Finished
+function getCourseTag(p) {
+  const isDispensed = p.status?.toLowerCase().includes('dispensed');
+
+  if (!isDispensed) {
+    return { label: 'Issued', style: 'tagIssued' };
+  }
+
+  // Dispensed: figure out if course window has elapsed
+  const courseStartStr = p.dispensed_at || p.created_at;
+  const courseStart = courseStartStr ? new Date(courseStartStr) : null;
+  const durationDays = parseInt(p.duration_days, 10) || 0;
+
+  if (courseStart && durationDays > 0) {
+    const courseEnd = new Date(courseStart);
+    courseEnd.setDate(courseEnd.getDate() + durationDays);
+    if (new Date() > courseEnd) {
+      return { label: 'Course Finished', style: 'tagFinished' };
+    }
+  }
+
+  return { label: 'Active', style: 'tagActive' };
 }
 
 function AppInner() {
@@ -41,31 +78,29 @@ function AppInner() {
   const [profile, setProfile] = useState(null);
   const [prescriptions, setPrescriptions] = useState([]);
   const [activeTab, setActiveTab] = useState('home');
-  const [selectedRx, setSelectedRx] = useState(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Home tab
   const [showActive, setShowActive] = useState(false);
+  const [visitExpanded, setVisitExpanded] = useState({});
 
-  // History tab
   const [searchQuery, setSearchQuery] = useState('');
+  const [antibioticOnly, setAntibioticOnly] = useState(false);
 
-  // Toast
   const [toastMessage, setToastMessage] = useState('');
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  // Forgot password
   const [resetOtp, setResetOtp] = useState('');
   const [sentResetOtp, setSentResetOtp] = useState('');
   const [newPassword, setNewPassword] = useState('');
 
-  // ABHA verification
   const [abhaVerified, setAbhaVerified] = useState(false);
   const [abhaOtp, setAbhaOtp] = useState('');
   const [abhaSentOtp, setAbhaSentOtp] = useState('');
+  const [abhaTxnId, setAbhaTxnId] = useState('');
+  const [consentGiven, setConsentGiven] = useState(false);
+  const [showPrivacyNotice, setShowPrivacyNotice] = useState(false);
 
-  // ---------- UI HELPERS ----------
   const showToast = (message) => {
     setToastMessage(message);
     Animated.timing(fadeAnim, { toValue: 1, duration: 200, useNativeDriver: true }).start(() => {
@@ -97,7 +132,10 @@ function AppInner() {
     return null;
   };
 
-  // ---------- ABHA ----------
+  const toggleVisit = (key) => {
+    setVisitExpanded(v => ({ ...v, [key]: !v[key] }));
+  };
+
   const sendAbhaOtp = async () => {
     if (!abha) return Alert.alert('Enter your ABHA number first');
     setLoading(true);
@@ -110,7 +148,9 @@ function AppInner() {
       const data = await res.json();
       const testOtp = data.mock_otp || '';
       setAbhaSentOtp(testOtp);
-      Alert.alert('ABHA OTP sent', testOtp ? `Demo OTP Code: ${testOtp}` : 'An OTP was sent to your ABHA-linked mobile.');
+      // txn_id is present in real ABDM mode; harmless/undefined in mock mode
+      setAbhaTxnId(data.txn_id || abha);
+      Alert.alert('ABHA OTP sent', testOtp ? `Demo OTP Code: ${testOtp}` : (data.message || 'An OTP was sent to your ABHA-linked mobile.'));
     } catch (e) {
       Alert.alert('Network error', String(e));
     } finally {
@@ -125,7 +165,9 @@ function AppInner() {
       const res = await fetch(`${API_BASE}/abha/verify-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ abha_number: abha, otp: abhaOtp }),
+        // abha_number field carries either the ABHA number (mock mode)
+        // or the txn_id (real ABDM mode) — backend handles both.
+        body: JSON.stringify({ abha_number: abhaTxnId, otp: abhaOtp }),
       });
       const data = await res.json();
       if (res.ok && data.verified) {
@@ -147,16 +189,16 @@ function AppInner() {
     );
   };
 
-  // ---------- AUTH ----------
   const signup = async () => {
     if (!abhaVerified) return Alert.alert('Please verify your ABHA first');
     if (!name || !phone || !password) return Alert.alert('Please fill name, phone, and password');
+    if (!consentGiven) return Alert.alert('Consent required', 'Please agree to the Privacy Notice to create your account.');
     setLoading(true);
     try {
       const res = await fetch(`${API_BASE}/auth/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ abha_id: abha, name, phone, password }),
+        body: JSON.stringify({ abha_id: abha, name, phone, password, consent_given: true }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -240,7 +282,6 @@ function AppInner() {
     }
   };
 
-  // ---------- DATA ----------
   const fetchPrescriptions = async (jwt) => {
     try {
       const res = await fetch(`${API_BASE}/patient/me/prescriptions/detailed`, {
@@ -300,15 +341,14 @@ function AppInner() {
           style: 'destructive',
           onPress: () => {
             setToken(''); setProfile(null); setPrescriptions([]);
-            setPassword(''); setActiveTab('home'); setSelectedRx(null);
-            setShowActive(false); setMode('login');
+            setPassword(''); setActiveTab('home');
+            setShowActive(false); setAntibioticOnly(false); setVisitExpanded({}); setMode('login');
           }
         }
       ]
     );
   };
 
-  // #7b — Delete Account
   const deleteAccount = () => {
     Alert.alert(
       'Delete Account',
@@ -319,7 +359,6 @@ function AppInner() {
           text: 'Yes, Delete',
           style: 'destructive',
           onPress: () => {
-            // Second confirmation
             Alert.alert(
               'Are you absolutely sure?',
               `Deleting account for ${profile?.name}. All data will be lost forever.`,
@@ -337,7 +376,7 @@ function AppInner() {
                       });
                       if (res.ok) {
                         setToken(''); setProfile(null); setPrescriptions([]);
-                        setPassword(''); setActiveTab('home'); setSelectedRx(null);
+                        setPassword(''); setActiveTab('home');
                         setShowActive(false); setMode('login');
                         Alert.alert('Account deleted', 'Your account has been permanently removed.');
                       } else {
@@ -359,7 +398,10 @@ function AppInner() {
     );
   };
 
-  // ---------- PROFILE COMPLETION ----------
+  if (showPrivacyNotice) {
+    return <PrivacyNotice onBack={() => setShowPrivacyNotice(false)} />;
+  }
+
   if (mode === 'complete-profile') {
     return (
       <ProfileCompletion
@@ -371,30 +413,26 @@ function AppInner() {
     );
   }
 
-  // ---------- PRESCRIPTION DETAIL ----------
-  if (selectedRx) {
-    return <PrescriptionDetail prescription={selectedRx} onClose={() => setSelectedRx(null)} />;
-  }
-
-  // ---------- HOME ----------
   if (mode === 'home' && profile) {
 
-    // ── History: filter + group ──
     const filteredPrescriptions = prescriptions.filter(p => {
       const q = searchQuery.toLowerCase();
-      return (
+      const matchesSearch =
         p.drug_name?.toLowerCase().includes(q) ||
         p.doctor_name?.toLowerCase().includes(q) ||
-        p.hospital_name?.toLowerCase().includes(q)
-      );
+        p.hospital_name?.toLowerCase().includes(q);
+      const matchesAntibiotic = !antibioticOnly || p.is_antibiotic;
+      return matchesSearch && matchesAntibiotic;
     });
-    const historyGroups = groupByDate(filteredPrescriptions);
 
-    // ── Home: active prescriptions grouped ──
     const activePrescriptions = prescriptions.filter(
       p => !p.status?.toLowerCase().includes('dispensed')
     );
-    const activeGroups = groupByDate(activePrescriptions);
+
+    const conflictingRx = activePrescriptions.filter(p => p.allergy_conflict);
+
+    const activeVisits = groupByVisit(activePrescriptions);
+    const historyVisits = groupByVisit(filteredPrescriptions);
 
     return (
       <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -412,10 +450,8 @@ function AppInner() {
             </TouchableOpacity>
           </View>
 
-          {/* ══════════ HOME TAB ══════════ */}
           {activeTab === 'home' && (
             <>
-              {/* Patient card */}
               <View style={styles.card}>
                 <Text style={styles.cardLabel}>ABHA ID</Text>
                 <TouchableOpacity onPress={() => copyToClipboard(profile.abha_id, 'ABHA ID')} activeOpacity={0.6}>
@@ -436,7 +472,6 @@ function AppInner() {
                 ) : null}
               </View>
 
-              {/* Allergy banner */}
               {profile.allergies && profile.allergies.toLowerCase() !== 'none' ? (
                 <View style={styles.allergyBanner}>
                   <Text style={styles.allergyBannerText}>
@@ -445,7 +480,18 @@ function AppInner() {
                 </View>
               ) : null}
 
-              {/* #5 — Active prescriptions button */}
+              {conflictingRx.length > 0 ? (
+                <View style={styles.conflictBanner}>
+                  <Text style={styles.conflictBannerTitle}>🚨 Allergy Conflict Detected</Text>
+                  <Text style={styles.conflictBannerText}>
+                    {conflictingRx.length === 1
+                      ? `${conflictingRx[0].drug_name} conflicts with your recorded allergies.`
+                      : `${conflictingRx.length} active prescriptions conflict with your recorded allergies.`}
+                    {' '}Please contact your doctor or pharmacist before taking this medication.
+                  </Text>
+                </View>
+              ) : null}
+
               {activePrescriptions.length === 0 ? (
                 <View style={styles.emptyBox}>
                   <Text style={styles.emptyIcon}>📋</Text>
@@ -455,7 +501,7 @@ function AppInner() {
                   </Text>
                 </View>
               ) : (
-                <>
+                <React.Fragment>
                   <TouchableOpacity
                     style={styles.activePrescriptionsButton}
                     onPress={() => setShowActive(v => !v)}
@@ -467,51 +513,59 @@ function AppInner() {
 
                   {showActive && (
                     <View style={{ marginTop: 8 }}>
-                      {Object.entries(activeGroups).map(([date, rxList]) => (
-                        <View key={date} style={styles.dateGroup}>
-                          <Text style={styles.dateLabel}>{date}</Text>
-                          {rxList.map(p => (
-                            <TouchableOpacity
-                              key={p.id}
-                              style={styles.rxCard}
-                              onPress={() => setSelectedRx(p)}
-                              activeOpacity={0.75}
-                            >
-                              <View style={styles.rxHeaderRow}>
-                                <Text style={styles.rxDrug}>{p.drug_name}</Text>
-                                {p.aware_category ? (
-                                  <View style={[styles.badge, badgeStyleFor(p.aware_category)]}>
-                                    <Text style={styles.badgeText}>{p.aware_category}</Text>
+                      {activeVisits.map(([visitKey, visit]) => (
+                        <View key={visitKey} style={styles.visitCard}>
+                          <TouchableOpacity onPress={() => toggleVisit(visitKey)} activeOpacity={0.75}>
+                            <Text style={styles.visitDoctor}>{visit.doctor_name || 'Unknown Doctor'}</Text>
+                            <Text style={styles.visitHospital}>{visit.hospital_name || 'Unknown Hospital'}</Text>
+                            <Text style={styles.visitDate}>{formatVisitDate(visit.created_at)}</Text>
+                          </TouchableOpacity>
+                          {visitExpanded[visitKey] && (
+                            <View style={styles.visitDrugList}>
+                              {visit.drugs.map(p => {
+                                const tag = getCourseTag(p);
+                                return (
+                                  <View key={p.id} style={styles.visitDrugRow}>
+                                    <View style={{ flex: 1 }}>
+                                      <View style={styles.rxHeaderRow}>
+                                        <Text style={styles.visitDrugName}>{p.drug_name}</Text>
+                                        {p.aware_category ? (
+                                          <View style={[styles.badge, badgeStyleFor(p.aware_category)]}>
+                                            <Text style={styles.badgeText}>{p.aware_category}</Text>
+                                          </View>
+                                        ) : null}
+                                      </View>
+                                      <Text style={styles.rxDetail}>{p.dosage} · {p.duration_days} days</Text>
+                                      <View style={[styles.courseTag, styles[tag.style]]}>
+                                        <Text style={styles.courseTagText}>{tag.label}</Text>
+                                      </View>
+                                      {p.not_recommended ? (
+                                        <Text style={styles.conflictText}>⛔ WHO: Not Recommended combination</Text>
+                                      ) : null}
+                                      {p.allergy_conflict ? (
+                                        <Text style={styles.conflictText}>⚠️ Conflicts with your allergies</Text>
+                                      ) : null}
+                                    </View>
                                   </View>
-                                ) : null}
-                              </View>
-                              <Text style={styles.rxDetail}>{p.dosage} · {p.duration_days} days</Text>
-                              <Text style={styles.rxStatus}>{p.status}</Text>
-                              {p.not_recommended ? (
-                                <Text style={styles.conflictText}>⛔ WHO: Not Recommended combination</Text>
-                              ) : null}
-                              {p.allergy_conflict ? (
-                                <Text style={styles.conflictText}>⚠️ Conflicts with your allergies</Text>
-                              ) : null}
-                              <Text style={styles.tapHint}>Tap for details →</Text>
-                            </TouchableOpacity>
-                          ))}
+                                );
+                              })}
+                            </View>
+                          )}
                         </View>
                       ))}
                     </View>
                   )}
-                </>
+                </React.Fragment>
               )}
             </>
           )}
 
-          {/* ══════════ HISTORY TAB ══════════ */}
           {activeTab === 'history' && (
             <View style={{ marginTop: 8 }}>
               <Text style={styles.sectionTitle}>Prescription History</Text>
 
               <TextInput
-                style={[styles.input, { marginBottom: 16, backgroundColor: '#e8f0f0', borderColor: 'transparent' }]}
+                style={[styles.input, { marginBottom: 12, backgroundColor: '#e8f0f0', borderColor: 'transparent' }]}
                 placeholder="🔍 Search by drug, doctor, or clinic..."
                 placeholderTextColor="#7a8a8a"
                 value={searchQuery}
@@ -519,54 +573,68 @@ function AppInner() {
                 clearButtonMode="while-editing"
               />
 
+              <TouchableOpacity
+                style={[styles.filterToggle, antibioticOnly && styles.filterToggleActive]}
+                onPress={() => setAntibioticOnly(v => !v)}
+              >
+                <Text style={[styles.filterToggleText, antibioticOnly && styles.filterToggleTextActive]}>
+                  {antibioticOnly ? '✓ Showing Antibiotics Only' : '💊 Show Antibiotics Only'}
+                </Text>
+              </TouchableOpacity>
+
               {filteredPrescriptions.length === 0 ? (
                 <View style={styles.emptyBox}>
                   <Text style={styles.emptyIcon}>🗂️</Text>
                   <Text style={styles.emptyTitle}>No history found</Text>
                   <Text style={styles.emptyText}>
-                    {searchQuery ? 'No prescriptions match your search.' : 'Your past prescriptions will appear here.'}
+                    {searchQuery || antibioticOnly ? 'No prescriptions match your filters.' : 'Your past prescriptions will appear here.'}
                   </Text>
                 </View>
               ) : (
-                // #4 — date-grouped history
-                Object.entries(historyGroups).map(([date, rxList]) => (
-                  <View key={date} style={styles.dateGroup}>
-                    <Text style={styles.dateLabel}>{date}</Text>
-                    {rxList.map(p => (
-                      <TouchableOpacity
-                        key={p.id}
-                        style={styles.historyCard}
-                        onPress={() => setSelectedRx(p)}
-                        activeOpacity={0.75}
-                      >
-                        <View style={styles.rxHeaderRow}>
-                          <Text style={styles.historyDrug}>{p.drug_name}</Text>
-                          {p.aware_category ? (
-                            <View style={[styles.badge, badgeStyleFor(p.aware_category)]}>
-                              <Text style={styles.badgeText}>{p.aware_category}</Text>
+                historyVisits.map(([visitKey, visit]) => (
+                  <View key={visitKey} style={styles.visitCard}>
+                    <TouchableOpacity onPress={() => toggleVisit(visitKey)} activeOpacity={0.75}>
+                      <Text style={styles.visitDoctor}>{visit.doctor_name || 'Unknown Doctor'}</Text>
+                      <Text style={styles.visitHospital}>{visit.hospital_name || 'Unknown Hospital'}</Text>
+                      <Text style={styles.visitDate}>{formatVisitDate(visit.created_at)}</Text>
+                    </TouchableOpacity>
+                    {visitExpanded[visitKey] && (
+                      <View style={styles.visitDrugList}>
+                        {visit.drugs.map(p => {
+                          const tag = getCourseTag(p);
+                          return (
+                            <View key={p.id} style={styles.visitDrugRow}>
+                              <View style={{ flex: 1 }}>
+                                <View style={styles.rxHeaderRow}>
+                                  <Text style={styles.visitDrugName}>{p.drug_name}</Text>
+                                  {p.aware_category ? (
+                                    <View style={[styles.badge, badgeStyleFor(p.aware_category)]}>
+                                      <Text style={styles.badgeText}>{p.aware_category}</Text>
+                                    </View>
+                                  ) : null}
+                                </View>
+                                <Text style={styles.rxDetail}>{p.dosage} · {p.duration_days} days</Text>
+                                <View style={[styles.courseTag, styles[tag.style]]}>
+                                  <Text style={styles.courseTagText}>{tag.label}</Text>
+                                </View>
+                              </View>
                             </View>
-                          ) : null}
-                        </View>
-                        <Text style={styles.historyDose}>{p.dosage} · {p.duration_days} days</Text>
-                        <Text style={styles.rxStatus}>{p.doctor_name || '—'} · {p.hospital_name || '—'}</Text>
-                        <Text style={styles.tapHint}>Tap to view details →</Text>
-                      </TouchableOpacity>
-                    ))}
+                          );
+                        })}
+                      </View>
+                    )}
                   </View>
                 ))
               )}
             </View>
           )}
 
-          {/* ══════════ OTHER TABS ══════════ */}
           {activeTab === 'qr' && <QrTab patientData={profile} onRefreshData={handleRefresh} isLoading={refreshing} />}
           {activeTab === 'book' && <BookTab />}
           {activeTab === 'family' && <FamilyTab apiBase={API_BASE} token={token} />}
 
-          {/* ══════════ SETTINGS TAB ══════════ */}
           {activeTab === 'settings' && (
             <View style={{ marginTop: 8 }}>
-              {/* #7a — large Settings header */}
               <Text style={styles.settingsPageTitle}>Settings</Text>
 
               <View style={styles.card}>
@@ -581,6 +649,9 @@ function AppInner() {
               <TouchableOpacity style={styles.settingsItem} onPress={handleRefresh}>
                 <Text style={styles.settingsItemText}>🔄  Sync Prescriptions</Text>
               </TouchableOpacity>
+              <TouchableOpacity style={styles.settingsItem} onPress={() => setShowPrivacyNotice(true)}>
+                <Text style={styles.settingsItemText}>🔒  Privacy Notice</Text>
+              </TouchableOpacity>
               <TouchableOpacity
                 style={styles.settingsItem}
                 onPress={() => Alert.alert('AMR-PVMS Patient', 'Version 1.0 (demo)')}
@@ -592,7 +663,6 @@ function AppInner() {
                 <Text style={styles.buttonText}>Log Out</Text>
               </TouchableOpacity>
 
-              {/* #7b — Delete Account */}
               <TouchableOpacity style={styles.deleteButton} onPress={deleteAccount}>
                 <Text style={styles.deleteButtonText}>🗑️  Delete Account</Text>
               </TouchableOpacity>
@@ -609,7 +679,6 @@ function AppInner() {
     );
   }
 
-  // ---------- FORGOT PASSWORD ----------
   if (mode === 'forgot') {
     return (
       <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
@@ -642,7 +711,6 @@ function AppInner() {
     );
   }
 
-  // ---------- SIGNUP / LOGIN ----------
   return (
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
@@ -650,6 +718,12 @@ function AppInner() {
         <Text style={styles.subtitle}>
           {mode === 'signup' ? 'Create your account' : 'Log in'}
         </Text>
+
+        <View style={styles.demoBanner}>
+          <Text style={styles.demoBannerText}>
+            🔬 Demo Mode — ABDM sandbox approval pending. ABHA verification uses a mock OTP for this prototype.
+          </Text>
+        </View>
 
         <TextInput style={styles.input} placeholder="Phone number"
           value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
@@ -680,6 +754,23 @@ function AppInner() {
                   value={name} onChangeText={setName} />
                 <TextInput style={styles.input} placeholder="Set a password"
                   value={password} onChangeText={setPassword} secureTextEntry />
+
+                <TouchableOpacity
+                  style={styles.consentRow}
+                  onPress={() => setConsentGiven(v => !v)}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.checkbox, consentGiven && styles.checkboxChecked]}>
+                    {consentGiven && <Text style={styles.checkboxTick}>✓</Text>}
+                  </View>
+                  <Text style={styles.consentText}>
+                    I agree to MedTrace storing and using my health data as described in the{' '}
+                    <Text style={styles.consentLink} onPress={() => setShowPrivacyNotice(true)}>
+                      Privacy Notice
+                    </Text>.
+                  </Text>
+                </TouchableOpacity>
+
                 <TouchableOpacity style={styles.button} onPress={signup} disabled={loading}>
                   <Text style={styles.buttonText}>Complete Sign Up</Text>
                 </TouchableOpacity>
@@ -725,7 +816,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#f0f7f7' },
   container: { flexGrow: 1, justifyContent: 'center', padding: 24, paddingBottom: 100 },
   title: { fontSize: 26, fontWeight: 'bold', color: '#0d7377', textAlign: 'center', marginBottom: 4 },
-  subtitle: { fontSize: 15, color: '#555', textAlign: 'center', marginBottom: 22 },
+  subtitle: { fontSize: 15, color: '#555', textAlign: 'center', marginBottom: 16 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   settingsIcon: { padding: 8 },
   settingsIconText: { fontSize: 20 },
@@ -739,6 +830,16 @@ const styles = StyleSheet.create({
   verifiedText: { color: '#2e9e5b', fontWeight: '700', fontSize: 15, textAlign: 'center', marginBottom: 12 },
   hint: { color: '#c00', textAlign: 'center', marginBottom: 8, fontWeight: '600' },
 
+  consentRow: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 4, marginBottom: 16 },
+  checkbox: { width: 22, height: 22, borderRadius: 5, borderWidth: 2, borderColor: '#0d7377', marginRight: 10, marginTop: 1, alignItems: 'center', justifyContent: 'center' },
+  checkboxChecked: { backgroundColor: '#0d7377' },
+  checkboxTick: { color: '#fff', fontSize: 14, fontWeight: 'bold' },
+  consentText: { flex: 1, fontSize: 13, color: '#333', lineHeight: 19 },
+  consentLink: { color: '#0d7377', fontWeight: '700', textDecorationLine: 'underline' },
+
+  demoBanner: { backgroundColor: '#eef6f6', borderRadius: 10, padding: 12, marginBottom: 18, borderWidth: 1, borderColor: '#c4dede' },
+  demoBannerText: { color: '#0d7377', fontSize: 12, textAlign: 'center', fontWeight: '600', lineHeight: 17 },
+
   card: { backgroundColor: '#fff', borderRadius: 16, padding: 20, marginTop: 8, elevation: 2 },
   cardLabel: { fontSize: 11, color: '#8a9a9a', textTransform: 'uppercase', letterSpacing: 0.5 },
   cardValue: { fontSize: 16, color: '#222', fontWeight: '600', marginTop: 2, marginBottom: 4 },
@@ -748,31 +849,44 @@ const styles = StyleSheet.create({
   allergyBanner: { backgroundColor: '#fff3f3', borderRadius: 10, padding: 12, marginTop: 12, borderWidth: 1, borderColor: '#f0c0c0' },
   allergyBannerText: { color: '#c0392b', fontSize: 13, fontWeight: '600' },
 
+  conflictBanner: { backgroundColor: '#7d1128', borderRadius: 12, padding: 16, marginTop: 12 },
+  conflictBannerTitle: { color: '#fff', fontSize: 15, fontWeight: '800', marginBottom: 6 },
+  conflictBannerText: { color: '#ffe0e0', fontSize: 13, fontWeight: '600', lineHeight: 18 },
+
   emptyBox: { alignItems: 'center', padding: 30, marginTop: 20 },
   emptyIcon: { fontSize: 40, marginBottom: 10 },
   emptyTitle: { fontSize: 16, fontWeight: '700', color: '#333', marginBottom: 4 },
   emptyText: { fontSize: 13, color: '#777', textAlign: 'center' },
 
   sectionTitle: { fontSize: 13, fontWeight: '700', color: '#5a6a6a', marginBottom: 10, marginTop: 12, textTransform: 'uppercase', letterSpacing: 0.5 },
-
-  // #7a — Settings page title
   settingsPageTitle: { fontSize: 26, fontWeight: '700', color: '#0d7377', marginBottom: 16, marginTop: 4 },
 
-  // #5 — Active prescriptions button
   activePrescriptionsButton: { backgroundColor: '#0d7377', borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 16 },
   activePrescriptionsButtonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
 
-  // Date grouping (shared between home + history)
-  dateGroup: { marginBottom: 20 },
-  dateLabel: { fontSize: 12, fontWeight: '700', color: '#8a9a9a', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
-  tapHint: { fontSize: 11, color: '#0d7377', marginTop: 6, fontStyle: 'italic' },
+  filterToggle: { backgroundColor: '#fff', borderRadius: 10, padding: 12, alignItems: 'center', marginBottom: 16, borderWidth: 1, borderColor: '#cde' },
+  filterToggleActive: { backgroundColor: '#0d7377', borderColor: '#0d7377' },
+  filterToggleText: { color: '#0d7377', fontWeight: '700', fontSize: 13 },
+  filterToggleTextActive: { color: '#fff' },
 
-  rxCard: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 8, elevation: 1 },
+  visitCard: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 10, elevation: 1 },
+  visitDoctor: { fontSize: 16, fontWeight: '700', color: '#0d7377' },
+  visitHospital: { fontSize: 13, color: '#666', marginTop: 2 },
+  visitDate: { fontSize: 12, color: '#8a9a9a', marginTop: 4 },
+  visitDrugList: { marginTop: 12, borderTopWidth: 1, borderTopColor: '#eef2f2', paddingTop: 10 },
+  visitDrugRow: { flexDirection: 'row', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#f5f8f8' },
+  visitDrugName: { fontSize: 14, fontWeight: '600', color: '#0d7377', flexShrink: 1, marginRight: 8 },
+
   rxHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  rxDrug: { fontSize: 16, fontWeight: '700', color: '#0d7377', flexShrink: 1, marginRight: 8 },
   rxDetail: { fontSize: 13, color: '#666', marginTop: 4 },
-  rxStatus: { fontSize: 12, color: '#8a9a9a', marginTop: 4, textTransform: 'capitalize' },
   conflictText: { color: '#c0392b', fontSize: 12, fontWeight: '700', marginTop: 8 },
+
+  // Course status tags
+  courseTag: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 10, marginTop: 6 },
+  courseTagText: { fontSize: 11, fontWeight: '700' },
+  tagIssued: { backgroundColor: '#eef2f2' },
+  tagActive: { backgroundColor: '#e3f5ea' },
+  tagFinished: { backgroundColor: '#eef0f5' },
 
   badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   badgeText: { fontSize: 11, fontWeight: '700', color: '#fff' },
@@ -781,14 +895,9 @@ const styles = StyleSheet.create({
   badgeReserve: { backgroundColor: '#c0392b' },
   badgeNotRecommended: { backgroundColor: '#7d1128' },
 
-  historyCard: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 8, elevation: 1 },
-  historyDrug: { fontSize: 16, fontWeight: '700', color: '#0d7377', flexShrink: 1, marginRight: 8 },
-  historyDose: { fontSize: 13, color: '#666', marginTop: 4 },
-
   settingsItem: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginTop: 10 },
   settingsItemText: { fontSize: 15, color: '#333', fontWeight: '600' },
 
-  // #7b — Delete account button
   deleteButton: { backgroundColor: '#fff3f3', borderRadius: 10, padding: 15, alignItems: 'center', marginTop: 12, borderWidth: 1, borderColor: '#f0c0c0' },
   deleteButtonText: { color: '#c0392b', fontWeight: '700', fontSize: 15 },
 

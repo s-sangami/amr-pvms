@@ -19,6 +19,9 @@ import auth
 import notifications
 import aware_data
 import abha
+import abha_real
+
+USE_REAL_ABHA = os.getenv("USE_REAL_ABHA", "false").lower() == "true"
 
 app = FastAPI(title="AMR-PVMS Patient Backend")
 
@@ -163,12 +166,27 @@ def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db))
 
 @app.post("/abha/send-otp")
 def abha_send_otp(payload: AbhaSendOtpRequest):
+    if USE_REAL_ABHA:
+        result = abha_real.verify_abha_send_otp(payload.abha_number)
+        if not result["sent"]:
+            raise HTTPException(status_code=404, detail=result["message"])
+        # txn_id must be sent back to the app; the app must return it
+        # unchanged in the verify-otp call below (real flow keys OTPs by
+        # txn_id, not by ABHA number).
+        return result
     result = abha.verify_abha_send_otp(payload.abha_number)
     return result
 
 
 @app.post("/abha/verify-otp")
 def abha_verify_otp(payload: AbhaConfirmOtpRequest):
+    if USE_REAL_ABHA:
+        # payload.abha_number is repurposed to carry the txn_id here,
+        # since the real flow verifies by transaction, not ABHA number.
+        result = abha_real.verify_abha_confirm_otp(payload.abha_number, payload.otp)
+        if not result.get("verified"):
+            raise HTTPException(status_code=401, detail="ABHA verification failed — invalid OTP")
+        return result
     result = abha.verify_abha_confirm_otp(payload.abha_number, payload.otp)
     if not result.get("verified"):
         raise HTTPException(status_code=401, detail="ABHA verification failed — invalid OTP")
