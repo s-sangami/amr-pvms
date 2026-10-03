@@ -1,11 +1,8 @@
 package com.amrpvms.hospital_backend.controller;
 
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
+import com.amrpvms.hospital_backend.service.AbhaRealService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.client.RestTemplate;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -14,60 +11,74 @@ import java.util.Map;
 @RequestMapping("/abdm")
 public class AbdmController {
 
-    // ⚠️ UNVERIFIED — confirm exact URL against the M1 milestone video / ABDM docs.
-    // ABDM sandbox gateway session endpoints have historically used versioned paths
-    // (e.g. /gateway/v0.5/sessions) that change between environments/releases.
-    private static final String GATEWAY_SESSION_URL = "https://dev.abdm.gov.in/gateway/v0.5/sessions";
+    @Autowired
+    private AbhaRealService abhaRealService;
 
-    // From your bridge registration email — confirm these are meant to be used
-    // directly as clientId/clientSecret for the session call (vs. a separate
-    // "bridge auth" credential pair issued elsewhere).
-    private static final String CLIENT_ID = "SBXID_053766";
-    private static final String CLIENT_SECRET = "863c8977-a5db-47d9-b622-90bac71342fa";
-
-    /**
-     * Requests a gateway access token using bridge credentials.
-     * ⚠️ Field names below (clientId/clientSecret) are a best guess based on common
-     * ABDM sandbox conventions — verify exact field names/casing from the M1 video
-     * or docs before relying on this. Some ABDM flows use snake_case instead.
-     */
-    private Map<String, Object> getGatewayToken() {
-        RestTemplate restTemplate = new RestTemplate();
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-
-        Map<String, String> body = new HashMap<>();
-        body.put("clientId", CLIENT_ID);
-        body.put("clientSecret", CLIENT_SECRET);
-
-        HttpEntity<Map<String, String>> entity = new HttpEntity<>(body, headers);
-
-        ResponseEntity<Map> response = restTemplate.postForEntity(GATEWAY_SESSION_URL, entity, Map.class);
-        return response.getBody();
-    }
-
-    /**
-     * Temporary test endpoint — NOT for production use. Lets you manually verify
-     * the gateway auth call works before wiring it into verify()/verify-hpr().
-     * Remove or secure this before going live.
-     */
+    // Test 1: token generation
     @GetMapping("/test-gateway-auth")
     public Map<String, Object> testGatewayAuth() {
+        Map<String, Object> result = new HashMap<>();
         try {
-            return getGatewayToken();
+            String token = abhaRealService.getAccessToken();
+            result.put("accessToken", token);
         } catch (Exception e) {
-            Map<String, Object> error = new HashMap<>();
-            error.put("error", e.getMessage());
-            return error;
+            result.put("error", e.getMessage());
         }
+        return result;
     }
+
+    // Test 2: certificate fetch
+    @GetMapping("/test-cert")
+    public Map<String, Object> testCert() {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            result.put("certificate", abhaRealService.fetchPublicCertificate());
+        } catch (Exception e) {
+            result.put("error", e.getMessage());
+        }
+        return result;
+    }
+
+    // Test 3: search by mobile
+    @PostMapping("/test-search")
+    public Map<String, Object> testSearch(@RequestBody Map<String, String> body) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            result.putAll(abhaRealService.searchByMobile(body.get("mobileNumber")));
+        } catch (Exception e) {
+            result.put("error", e.getMessage());
+        }
+        return result;
+    }
+
+    // Test 4: request OTP
+    @PostMapping("/test-request-otp")
+    public Map<String, Object> testRequestOtp(@RequestBody Map<String, String> body) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            result.putAll(abhaRealService.requestOtp(body.get("mobileNumber")));
+        } catch (Exception e) {
+            result.put("error", e.getMessage());
+        }
+        return result;
+    }
+    // Test 5: verify OTP
+    @PostMapping("/test-verify-otp")
+    public Map<String, Object> testVerifyOtp(@RequestBody Map<String, String> body) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            result.putAll(abhaRealService.verifyOtp(body.get("txnId"), body.get("otp")));
+        } catch (Exception e) {
+            result.put("error", e.getMessage());
+        }
+        return result;
+    }
+
+    // --- Existing mock endpoints, kept as-is for now ---
 
     @GetMapping("/verify/{abha}")
     public Map<String, Object> verify(@PathVariable String abha) {
         Map<String, Object> response = new HashMap<>();
-
-        // Mock fallback — real ABDM sandbox integration pending credential approval.
-        // For now, treat any 14-digit numeric ABHA as valid, mirroring the real ABHA format.
         if (abha != null && abha.matches("\\d{14}")) {
             response.put("verified", true);
             response.put("name", "Demo Patient (" + abha + ")");
@@ -82,7 +93,6 @@ public class AbdmController {
     @GetMapping("/verify-hpr/{hprId}")
     public Map<String, Object> verifyHpr(@PathVariable String hprId) {
         Map<String, Object> response = new HashMap<>();
-
         if (hprId != null && hprId.matches("[A-Za-z0-9\\-]{6,20}")) {
             response.put("verified", true);
             response.put("hprId", hprId);
