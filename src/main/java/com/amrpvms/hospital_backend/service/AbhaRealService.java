@@ -26,7 +26,7 @@ public class AbhaRealService {
     private String clientSecret;
 
     // Token generation uses the gateway host
-    private static final String GATEWAY_URL = "https://dev.abdm.gov.in/gateway/v0.5/sessions";
+    private static final String GATEWAY_URL = "https://dev.abdm.gov.in/api/hiecm/gateway/v3/sessions";
 
     // ABHA profile/enrollment APIs use the abhasbx host
     private static final String ABHA_BASE_URL = "https://abhasbx.abdm.gov.in/abha/api";
@@ -49,6 +49,9 @@ public class AbhaRealService {
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("REQUEST-ID", UUID.randomUUID().toString());
+        headers.set("TIMESTAMP", java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS).toString());
+        headers.set("X-CM-ID", "sbx");
 
         HttpEntity<Map<String, String>> request = new HttpEntity<>(body, headers);
         ResponseEntity<Map> response = restTemplate.postForEntity(GATEWAY_URL, request, Map.class);
